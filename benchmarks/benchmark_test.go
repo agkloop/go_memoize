@@ -1,7 +1,7 @@
 package benchmarks
 
 import (
-	M "github.com/AhmedGoudaa/go_memoize"
+	M "github.com/agkloop/go_memoize"
 	"testing"
 	"time"
 )

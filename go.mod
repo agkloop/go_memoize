@@ -1,3 +1,3 @@
-module github.com/AhmedGoudaa/go_memoize
+module github.com/agkloop/go_memoize
 
 go 1.22.5
