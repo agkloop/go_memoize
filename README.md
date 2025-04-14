@@ -1,11 +1,11 @@
 # go_memoize 
 
-![Workflow Status](https://github.com/AhmedGoudaa/go_memoize/actions/workflows/ci.yml/badge.svg)
+![Workflow Status](https://github.com/agkloop/go_memoize/actions/workflows/ci.yml/badge.svg)
 
 `go_memoize` package provides a set of functions to memoize the results of computations, allowing for efficient caching and retrieval of results based on input parameters. This can significantly improve performance for expensive or frequently called functions.
 
 ## Features
-- Memoizes functions with TTL, supporting 0 to 7 comparable parameters. [List of Memoize Functions](https://github.com/AhmedGoudaa/go_memoize/blob/main/memoize.go)
+- Memoizes functions with TTL, supporting 0 to 7 comparable parameters. [List of Memoize Functions](https://github.com/agkloop/go_memoize/blob/main/memoize.go)
 - High performance, zero allocation, and zero dependencies.
 - Utilizes the FNV-1a hash algorithm for caching.
 - Thread-safe and concurrent-safe.
@@ -15,7 +15,7 @@
 To install the package, use `go get`:
 
 ```sh
-go get github.com/AhmedGoudaa/go_memoize
+go get github.com/agkloop/go_memoize
 ```
 
 ## Usage
@@ -134,7 +134,7 @@ package main
 import (
     "fmt"
     "time"
-    m "github.com/AhmedGoudaa/go_memoize"
+    m "github.com/agkloop/go_memoize"
 )
 
 func main() {
@@ -326,7 +326,7 @@ result := memoizedCtxFn(context.Background(), 1, 2, 3, 4, 5, 6, 7)
   </tr>
 </table>
 
-### [For more benchmarking results please check this](https://github.com/AhmedGoudaa/go_memoize/blob/bechmarking/benchmarks/README.md)
+### [For more benchmarking results please check this](https://github.com/agkloop/go_memoize/blob/bechmarking/benchmarks/README.md)
 Device "Apple M2 Pro"
 
 ```
@@ -340,4 +340,4 @@ BenchmarkDo4Mem-10 | 487471639 | 24.73 ns/op | 0 B/op | 0 allocs/op
 
 ```
 
-This project is licensed under the Apache License. See the [`LICENSE`](https://github.com/AhmedGoudaa/go_memoize/blob/main/LICENSE) file for details.
+This project is licensed under the Apache License. See the [`LICENSE`](https://github.com/agkloop/go_memoize/blob/main/LICENSE) file for details.
