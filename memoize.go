@@ -91,3 +91,142 @@ func Memoize7[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(K1, K
 		})
 	}
 }
+
+// --- New variants that return an error and avoid caching when computeFn returns a non-nil error ---
+
+// MemoizeE memoizes a function that returns (V, error). Errors are not cached.
+func MemoizeE[V any](computeFn func() (V, error), ttl time.Duration) func() (V, error) {
+	cache := NewCacheSized[uint64, V](1, int64(ttl.Seconds()))
+	return func() (V, error) {
+		// try cached
+		if v, ok := cache.Get(0); ok {
+			return v, nil
+		}
+		// compute
+		v, err := computeFn()
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(0, v)
+		return v, nil
+	}
+}
+
+// Memoize1E memoizes a function with 1 arg that returns (V, error). Errors are not cached.
+func Memoize1E[K comparable, V any](computeFn func(K) (V, error), ttl time.Duration) func(K) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(k K) (V, error) {
+		key := hash1(k)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(k)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize2E memoizes a function with 2 args that returns (V, error). Errors are not cached.
+func Memoize2E[K1, K2 comparable, V any](computeFn func(K1, K2) (V, error), ttl time.Duration) func(K1, K2) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2) (V, error) {
+		key := hash2(key1, key2)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize3E memoizes a function with 3 args that returns (V, error). Errors are not cached.
+func Memoize3E[K1, K2, K3 comparable, V any](computeFn func(K1, K2, K3) (V, error), ttl time.Duration) func(K1, K2, K3) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2, key3 K3) (V, error) {
+		key := hash3(key1, key2, key3)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2, key3)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize4E memoizes a function with 4 args that returns (V, error). Errors are not cached.
+func Memoize4E[K1, K2, K3, K4 comparable, V any](computeFn func(K1, K2, K3, K4) (V, error), ttl time.Duration) func(K1, K2, K3, K4) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2, key3 K3, key4 K4) (V, error) {
+		key := hash4(key1, key2, key3, key4)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2, key3, key4)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize5E memoizes a function with 5 args that returns (V, error). Errors are not cached.
+func Memoize5E[K1, K2, K3, K4, K5 comparable, V any](computeFn func(K1, K2, K3, K4, K5) (V, error), ttl time.Duration) func(K1, K2, K3, K4, K5) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2, key3 K3, key4 K4, key5 K5) (V, error) {
+		key := hash5(key1, key2, key3, key4, key5)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2, key3, key4, key5)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize6E memoizes a function with 6 args that returns (V, error). Errors are not cached.
+func Memoize6E[K1, K2, K3, K4, K5, K6 comparable, V any](computeFn func(K1, K2, K3, K4, K5, K6) (V, error), ttl time.Duration) func(K1, K2, K3, K4, K5, K6) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6) (V, error) {
+		key := hash6(key1, key2, key3, key4, key5, key6)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2, key3, key4, key5, key6)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
+
+// Memoize7E memoizes a function with 7 args that returns (V, error). Errors are not cached.
+func Memoize7E[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(K1, K2, K3, K4, K5, K6, K7) (V, error), ttl time.Duration) func(K1, K2, K3, K4, K5, K6, K7) (V, error) {
+	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+	return func(key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6, key7 K7) (V, error) {
+		key := hash7(key1, key2, key3, key4, key5, key6, key7)
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		v, err := computeFn(key1, key2, key3, key4, key5, key6, key7)
+		if err != nil {
+			return zeroValue[V](), err
+		}
+		cache.Set(key, v)
+		return v, nil
+	}
+}
