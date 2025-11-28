@@ -6,6 +6,7 @@
 
 ## Features
 - Memoizes functions with TTL, supporting 0 to 7 comparable parameters. [List of Memoize Functions](https://github.com/agkloop/go_memoize/blob/main/memoize.go)
+- Error-aware variants (suffix `E`) that support compute functions returning `(V, error)` and do NOT cache when an error is returned.
 - High performance, zero allocation, and zero dependencies.
 - Utilizes the FNV-1a hash algorithm for caching.
 - Thread-safe and concurrent-safe.
@@ -42,6 +43,36 @@ computeCtxFn := func(ctx context.Context) int {
 }
 memoizedCtxFn := MemoizeCtx(computeCtxFn, 10*time.Second)
 result := memoizedCtxFn(context.Background())
+```
+
+### Error-aware memoization (do not memoize errors)
+
+If your compute function can fail and returns `(V, error)`, use the `E` variants. These versions will NOT store a cached value when the compute function returns a non-nil error. This is useful for transient failures where you want the next call to retry the computation rather than returning a cached error result.
+
+Available `E` variants:
+- `MemoizeE` (no-arg)
+- `Memoize1E` .. `Memoize7E` (1..7 args)
+- `MemoizeCtxE` and `MemoizeCtx1E` .. `MemoizeCtx7E` (context-aware)
+
+Behavior:
+- If a cached value exists for the key, the function returns it and a nil error.
+- If no cached value exists, the compute function is executed.
+  - If compute returns `(v, nil)`, `v` is cached and returned.
+  - If compute returns `(zeroValue, err)` (err != nil), the error is returned and nothing is cached.
+
+Example:
+
+```go
+computeFn := func(id int) (string, error) {
+    // may return an error sometimes
+}
+
+memo := Memoize1E(func(id int) (string, error) { return computeFn(id) }, 30*time.Second)
+
+val, err := memo(123)
+if err != nil {
+    // transient error; next call will retry since nothing was cached
+}
 ```
 
 ### Memoization with Parameters
@@ -123,6 +154,20 @@ result := memoizedCtxFn(context.Background(), 5, "example", 3.14)
 ### Cache Management
 
 The `Cache` struct is used internally to manage the cached entries. It supports setting, getting, and deleting entries, as well as computing new values if they are not already cached or have expired.
+
+## Testing
+
+Unit tests cover the memoization behavior, including the new error-aware variants. To run tests:
+
+```sh
+# run all tests
+go test ./...
+
+# run a specific test
+go test ./... -run TestMemoizeE_DoesNotCacheError -v
+```
+
+New tests were added in `memoize_error_test.go` to verify that error results are not cached and that successful results are cached.
 
 ## Example
 
@@ -241,6 +286,46 @@ result := memoizedFn(1, 2, 3, 4, 5, 6)
       <pre><code>
 memoizedFn := Memoize7(func(a, b, c, d, e, f, g int) int { return a + b + c + d + e + f + g }, time.Minute)
 result := memoizedFn(1, 2, 3, 4, 5, 6, 7)
+      </code></pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>MemoizeE</code></td>
+    <td>Memoizes a function with no params, error-aware</td>
+    <td>
+      <pre><code>
+memoizedFn := MemoizeE(func() (int, error) { return 1, nil }, time.Minute)
+result, err := memoizedFn()
+      </code></pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>Memoize1E</code></td>
+    <td>Memoizes a function with 1 param, error-aware</td>
+    <td>
+      <pre><code>
+memoizedFn := Memoize1E(func(a int) (int, error) { return a * 2, nil }, time.Minute)
+result, err := memoizedFn(5)
+      </code></pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>Memoize2E</code></td>
+    <td>Memoizes a function with 2 params, error-aware</td>
+    <td>
+      <pre><code>
+memoizedFn := Memoize2E(func(a int, b string) (string, error) { return fmt.Sprintf("%d-%s", a, b), nil }, time.Minute)
+result, err := memoizedFn(5, "example")
+      </code></pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>Memoize3E</code></td>
+    <td>Memoizes a function with 3 params, error-aware</td>
+    <td>
+      <pre><code>
+memoizedFn := Memoize3E(func(a int, b string, c float64) (string, error) { return fmt.Sprintf("%d-%s-%f", a, b, c), nil }, time.Minute)
+result, err := memoizedFn(5, "example", 3.14)
       </code></pre>
     </td>
   </tr>
