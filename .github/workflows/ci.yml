@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,15 +22,21 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: stable
+          # Use a patched toolchain for security scanning; go.mod still defines
+          # the module compatibility target.
+          go-version: "1.25.10"
+          check-latest: true
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            adapters/redis/go.sum
 
-      - name: Run tests
-        run: go test -v ./...
+      - name: Install security and lint tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
-      - name: Check code formatting
-        run: gofmt -l .
-
-      - name: Run static analysis
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64
+      - name: Run full verification suite
+        env:
+          REQUIRE_OPTIONAL_TOOLS: "1"
+        run: scripts/verify-ci-local.sh

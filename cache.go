@@ -1,137 +1,313 @@
-package go_memoize
+package memoize
 
 import (
+	"context"
+	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// zeroValue returns the zero value for any type T.
-func zeroValue[T any]() T {
-	var zero T
-	return zero
+type flight[V any] struct {
+	wg    sync.WaitGroup
+	value V
+	err   error
 }
 
-// cacheGroup manages multiple caches with a shared ticker.
-type cacheGroup struct {
-	now          atomic.Value
-	ticker       *time.Ticker
-	tickInterval time.Duration
-	done         chan struct{}
+// peekingStore lets GetOrCompute inspect stored entry state without applying
+// Store.Get side effects such as recency updates before it chooses a policy.
+type peekingStore[K comparable, V any] interface {
+	Peek(ctx context.Context, key K) (Stored[V], bool, error)
 }
 
-// newCacheGroup creates a new cache group with a shared ticker.
-func newCacheGroup() *cacheGroup {
-	group := &cacheGroup{
-		done:         make(chan struct{}),
-		tickInterval: time.Millisecond,
+// freshValueStore is the first cache policy check: stores that can prove a
+// value is fresh return it directly before entry loading or flight handling.
+type freshValueStore[K comparable, V any] interface {
+	PeekFreshValue(ctx context.Context, key K, now time.Time) (V, bool, error)
+}
+
+func metricKey[K comparable](key K) string {
+	if s, ok := any(key).(string); ok {
+		return s
 	}
-	group.now.Store(time.Now().Unix())
-	group.startTicker()
-	return group
+	return fmt.Sprint(key)
 }
 
-// startTicker starts the ticker for the cache group.
-func (g *cacheGroup) startTicker() {
-	g.ticker = time.NewTicker(g.tickInterval) // Initialize the ticker
+func (c *Cache[K, V]) emitHit(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricHit, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) emitMiss(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricMiss, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) emitStaleHit(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricStaleHit, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) emitRefreshStart(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricRefreshStart, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) emitRefreshSuccess(key K, duration time.Duration) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricRefreshSuccess, Key: metricKey(key), Duration: duration})
+}
+
+func (c *Cache[K, V]) emitRefreshError(key K, err error) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricRefreshError, Key: metricKey(key), Err: err})
+}
+
+func (c *Cache[K, V]) emitSet(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricSet, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) emitDelete(key K) {
+	if !c.metricsEnabled {
+		return
+	}
+	c.metrics.RecordMetric(MetricEvent{Kind: MetricDelete, Key: metricKey(key)})
+}
+
+func (c *Cache[K, V]) getEntry(ctx context.Context, key K) (Stored[V], bool, error) {
+	if c.peeker != nil {
+		return c.peeker.Peek(ctx, key)
+	}
+	return c.store.Get(ctx, key)
+}
+
+func (c *Cache[K, V]) getFreshValue(ctx context.Context, key K, now time.Time) (V, bool, bool, error) {
+	if store, ok := c.store.(freshValueStore[K, V]); ok {
+		value, fresh, err := store.PeekFreshValue(ctx, key, now)
+		return value, fresh, true, err
+	}
+	var zero V
+	return zero, false, false, nil
+}
+
+func (c *Cache[K, V]) waitForFlight(key K) (V, bool, error) {
+	c.flightMu.Lock()
+	existing := c.flights[key]
+	c.flightMu.Unlock()
+	if existing == nil {
+		var zero V
+		return zero, false, nil
+	}
+	existing.wg.Wait()
+	return existing.value, true, existing.err
+}
+
+func (c *Cache[K, V]) startFlight(key K) (*flight[V], bool) {
+	c.flightMu.Lock()
+	if existing := c.flights[key]; existing != nil {
+		c.flightMu.Unlock()
+		return existing, false
+	}
+	f := &flight[V]{}
+	f.wg.Add(1)
+	c.flights[key] = f
+	c.flightMu.Unlock()
+	return f, true
+}
+
+func (c *Cache[K, V]) finishFlight(key K, f *flight[V], value V, err error) {
+	f.value = value
+	f.err = err
+	f.wg.Done()
+
+	c.flightMu.Lock()
+	delete(c.flights, key)
+	c.flightMu.Unlock()
+}
+
+func (c *Cache[K, V]) do(key K, fn func() (V, error)) (V, error) {
+	f, leader := c.startFlight(key)
+	if !leader {
+		f.wg.Wait()
+		return f.value, f.err
+	}
+
+	value, err := fn()
+	c.finishFlight(key, f, value, err)
+	return value, err
+}
+
+func (c *Cache[K, V]) refresh(key K, compute func(context.Context) (V, error)) {
+	f, leader := c.startFlight(key)
+	if !leader {
+		return
+	}
 	go func() {
-		for {
-			select {
-			case <-g.ticker.C:
-				g.now.Store(time.Now().Unix())
-			case <-g.done:
-				g.ticker.Stop()
-				return
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), c.refreshTimeout)
+		defer cancel()
+		started := c.clock.Now()
+		c.emitRefreshStart(key)
+		value, err := compute(ctx)
+		if err != nil {
+			c.emitRefreshError(key, err)
+			c.finishFlight(key, f, value, err)
+			return
 		}
+		if err := c.Set(ctx, key, value); err != nil {
+			c.emitRefreshError(key, err)
+			c.finishFlight(key, f, value, err)
+			return
+		}
+		c.emitRefreshSuccess(key, c.clock.Now().Sub(started))
+		c.finishFlight(key, f, value, nil)
 	}()
 }
 
-// var cacheGroupInstance is a singleton instance of cacheGroup.
-var cacheGroupInstance = newCacheGroup()
-
-// entry represents a cache entry with a value and a timestamp.
-type entry[V any] struct {
-	value     V
-	timeStamp int64
-}
-
-// Cache is a generic cache with a time-to-live (TTL) for each entry.
-type Cache[K comparable, V any] struct {
-	entries    map[K]entry[V]
-	ttl        int64
-	cacheGroup *cacheGroup
-	mu         sync.RWMutex
-	zeroVal    V
-}
-
-// NewCache creates a new cache with the specified TTL.
-func NewCache[K comparable, V any](ttl int64) *Cache[K, V] {
-	return &Cache[K, V]{
-		entries:    make(map[K]entry[V]),
-		cacheGroup: cacheGroupInstance,
-		ttl:        ttl,
-		zeroVal:    zeroValue[V](),
+func (c *Cache[K, V]) Get(ctx context.Context, key K) (V, bool, error) {
+	var zero V
+	if c.bypass {
+		return zero, false, nil
 	}
-}
-
-// NewCacheSized creates a new cache with the specified size and TTL.
-func NewCacheSized[K comparable, V any](size int, ttl int64) *Cache[K, V] {
-	return &Cache[K, V]{
-		entries:    make(map[K]entry[V], size),
-		cacheGroup: cacheGroupInstance,
-		ttl:        ttl,
-		zeroVal:    zeroValue[V](),
+	if c.store == nil {
+		return zero, false, ErrMissingStore
 	}
-}
-
-// NowUnix returns the current Unix timestamp from the cache group.
-func (c *Cache[K, V]) NowUnix() int64 {
-	return c.cacheGroup.now.Load().(int64)
-}
-
-// GetOrCompute retrieves the value for the given key or computes it using the provided function if not present or expired.
-func (c *Cache[K, V]) GetOrCompute(key K, computeFn func() V) V {
-	c.mu.RLock()
-	existingEntry, ok := c.entries[key]
-	c.mu.RUnlock()
-
-	now := c.NowUnix()
-	if ok && (c.ttl == 0 || now-existingEntry.timeStamp < c.ttl) {
-		return existingEntry.value
+	now := c.clock.Now()
+	if value, ok, _, err := c.getFreshValue(ctx, key, now); err != nil || ok {
+		if ok {
+			c.emitHit(key)
+		}
+		return value, ok, err
 	}
-
-	c.mu.Lock()
-	newVal := computeFn()
-	c.entries[key] = entry[V]{value: newVal, timeStamp: now}
-	c.mu.Unlock()
-	return newVal
-}
-
-// Delete removes the entry for the given key from the cache.
-func (c *Cache[K, V]) Delete(key K) {
-	c.mu.Lock()
-	delete(c.entries, key)
-	c.mu.Unlock()
-}
-
-// Set adds or updates the value for the given key in the cache.
-func (c *Cache[K, V]) Set(key K, value V) {
-	timeStamp := c.NowUnix()
-	c.mu.Lock()
-	c.entries[key] = entry[V]{value: value, timeStamp: timeStamp}
-	c.mu.Unlock()
-}
-
-// Get retrieves the value for the given key from the cache if present and not expired.
-func (c *Cache[K, V]) Get(key K) (V, bool) {
-	c.mu.RLock()
-	entry, ok := c.entries[key]
-	c.mu.RUnlock()
-
-	if ok && (c.ttl == 0 || c.NowUnix()-entry.timeStamp < c.ttl) {
-		return entry.value, true
+	entry, ok, err := c.getEntry(ctx, key)
+	if err != nil || !ok {
+		return zero, false, err
 	}
+	if entry.state(now) != entryFresh {
+		return zero, false, nil
+	}
+	c.emitHit(key)
+	return entry.Value, true, nil
+}
 
-	return c.zeroVal, false
+func (c *Cache[K, V]) Set(ctx context.Context, key K, value V) error {
+	if c.bypass {
+		return nil
+	}
+	if c.store == nil {
+		return ErrMissingStore
+	}
+	now := c.clock.Now()
+	entry := Stored[V]{Value: value, CreatedAt: now, NoExpire: c.noExpiration}
+	if !c.noExpiration {
+		entry.FreshUntil = now.Add(c.ttl)
+		if c.staleTTL > 0 {
+			entry.StaleUntil = entry.FreshUntil.Add(c.staleTTL)
+		}
+	}
+	if err := c.store.Set(ctx, key, entry); err != nil {
+		return err
+	}
+	c.emitSet(key)
+	return nil
+}
+
+func (c *Cache[K, V]) Delete(ctx context.Context, key K) error {
+	if c.store == nil {
+		return ErrMissingStore
+	}
+	if err := c.store.Delete(ctx, key); err != nil {
+		return err
+	}
+	c.emitDelete(key)
+	return nil
+}
+
+func (c *Cache[K, V]) Clear(ctx context.Context) error {
+	if c.store == nil {
+		return ErrMissingStore
+	}
+	return c.store.Clear(ctx)
+}
+
+// GetOrCompute follows the cache policy order: fresh-value fast path,
+// active-flight wait for non-stale caches, stored entry state handling,
+// stale-while-revalidate, miss computation, then configured stale fallback on
+// compute error.
+func (c *Cache[K, V]) GetOrCompute(ctx context.Context, key K, compute func(context.Context) (V, error)) (V, error) {
+	if c.bypass {
+		c.emitMiss(key)
+		return compute(ctx)
+	}
+	if c.store == nil {
+		var zero V
+		return zero, ErrMissingStore
+	}
+	now := c.clock.Now()
+	value, ok, supportsFreshValue, err := c.getFreshValue(ctx, key, now)
+	if err != nil || ok {
+		if ok {
+			c.emitHit(key)
+		}
+		return value, err
+	}
+	if supportsFreshValue && c.staleTTL == 0 && !c.keepStaleOnError {
+		if value, ok, err := c.waitForFlight(key); ok || err != nil {
+			return value, err
+		}
+	}
+	entry, ok, err := c.getEntry(ctx, key)
+	if err != nil {
+		var zero V
+		return zero, err
+	}
+	if ok {
+		switch entry.state(now) {
+		case entryFresh:
+			c.emitHit(key)
+			return entry.Value, nil
+		case entryStale:
+			c.emitStaleHit(key)
+			c.refresh(key, compute)
+			return entry.Value, nil
+		}
+	}
+	c.emitMiss(key)
+	value, err = c.do(key, func() (V, error) {
+		now := c.clock.Now()
+		if value, ok, _, err := c.getFreshValue(ctx, key, now); err != nil || ok {
+			return value, err
+		}
+		entry, ok, err := c.getEntry(ctx, key)
+		if err != nil {
+			var zero V
+			return zero, err
+		}
+		if ok && entry.state(now) == entryFresh {
+			return entry.Value, nil
+		}
+		computed, computeErr := compute(ctx)
+		if computeErr != nil {
+			return computed, computeErr
+		}
+		return computed, c.Set(ctx, key, computed)
+	})
+	if err != nil && ok && c.keepStaleOnError {
+		c.emitRefreshError(key, err)
+		return entry.Value, nil
+	}
+	return value, err
 }

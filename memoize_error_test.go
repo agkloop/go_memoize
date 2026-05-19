@@ -1,4 +1,4 @@
-package go_memoize
+package memoize
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func TestMemoize1E_DoesNotCacheError(t *testing.T) {
 		}
 		return "ok", nil
 	}
-	m := Memoize1E(fn, time.Minute)
+	m := mustMemoized(Memoize1E(fn, Opts().WithTTL(time.Minute)))
 
 	// First call should return error and not be cached
 	if v, err := m(1); err == nil {
@@ -58,7 +58,7 @@ func TestMemoizeE_DoesNotCacheError(t *testing.T) {
 		}
 		return "ok", nil
 	}
-	m := MemoizeE(fn, time.Minute)
+	m := mustMemoized(MemoizeE(fn, Opts().WithTTL(time.Minute)))
 
 	// First call fails and should not be cached
 	if v, err := m(); err == nil {
@@ -99,7 +99,7 @@ func TestMemoize2E_DoesNotCacheError(t *testing.T) {
 		}
 		return fmt.Sprintf("%d-%s", a, b), nil
 	}
-	m := Memoize2E(fn, time.Minute)
+	m := mustMemoized(Memoize2E(fn, Opts().WithTTL(time.Minute)))
 
 	// First call fails and should not be cached
 	if v, err := m(5, "x"); err == nil {
@@ -140,7 +140,7 @@ func TestMemoizeCtx1E_DoesNotCacheError(t *testing.T) {
 		}
 		return "ok", nil
 	}
-	m := MemoizeCtx1E(fn, time.Minute)
+	m := mustMemoized(MemoizeCtx1E(fn, Opts().WithTTL(time.Minute)))
 
 	// First call should return error and not be cached
 	if v, err := m(context.Background(), 42); err == nil {

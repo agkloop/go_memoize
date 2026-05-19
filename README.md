@@ -1,428 +1,128 @@
-# go_memoize 
+# go_memoize
 
 ![Workflow Status](https://github.com/agkloop/go_memoize/actions/workflows/ci.yml/badge.svg)
 
-`go_memoize` package provides a set of functions to memoize the results of computations, allowing for efficient caching and retrieval of results based on input parameters. This can significantly improve performance for expensive or frequently called functions.
+`go_memoize` is a Go memoization and caching package with one public root module for direct function memoization, explicit cache-engine workflows, in-memory stores, background snapshots, loaders, metrics, and adapters.
 
-## Features
-- Memoizes functions with TTL, supporting 0 to 7 comparable parameters. [List of Memoize Functions](https://github.com/agkloop/go_memoize/blob/main/memoize.go)
-- Error-aware variants (suffix `E`) that support compute functions returning `(V, error)` and do NOT cache when an error is returned.
-- High performance, zero allocation, and zero dependencies.
-- Utilizes the FNV-1a hash algorithm for caching.
-- Thread-safe and concurrent-safe.
-
-## Installation
-
-To install the package, use `go get`:
+## Install
 
 ```sh
 go get github.com/agkloop/go_memoize
 ```
 
-## Usage
+## Choose The Right API
 
-### Basic Memoization
+| Need | Use | Why |
+|---|---|---|
+| Memoize a function by comparable args | `memoize.Memoize1(fn, memoize.Opts().WithTTL(ttl))` through `Memoize7` | Small direct API with cache-engine options. |
+| Memoize a function that can fail | `memoize.Memoize1E` or `memoize.MemoizeCtx1E` | Errors are returned and successful values are cached. |
+| Cache explicit business keys | `memoize.New[K,V]` + `Cache.GetOrCompute` | Full control over key type, store, TTL, stale behavior, metrics, and shutdown. |
+| Many bounded in-memory keys | `memory.New[K,V](capacity)` | Exact LRU by default. |
+| One logical value or one hot key | `memory.NewSingle[K,V]()` or `background.Keep` | Avoids unnecessary LRU/hash overhead. |
+| Many hot keys concurrently | `memory.NewSharded[K,V](capacity)` | Distributes different supported primitive keys across shards. |
+| Cross-process or cross-host cache | Redis adapter or a custom shared store | In-process memory stores are not shared between processes. |
+| One scheduled snapshot with instant reads | `background.Keep` or `background.Mirror` | Refreshes independently of request traffic. |
 
-The `Memoize` function can be used to memoize a function with no parameters:
+## Quick Examples
 
-```go
-computeFn := func() int {
-    // Expensive computation
-    return 42
-}
-
-memoizedFn := Memoize(computeFn, 10*time.Second)
-result := memoizedFn()
-``` 
-The same for functions with Context:
-
-```go
-computeCtxFn := func(ctx context.Context) int {
-    // Expensive computation
-    return 42
-}
-memoizedCtxFn := MemoizeCtx(computeCtxFn, 10*time.Second)
-result := memoizedCtxFn(context.Background())
-```
-
-### Error-aware memoization (do not memoize errors)
-
-If your compute function can fail and returns `(V, error)`, use the `E` variants. These versions will NOT store a cached value when the compute function returns a non-nil error. This is useful for transient failures where you want the next call to retry the computation rather than returning a cached error result.
-
-Available `E` variants:
-- `MemoizeE` (no-arg)
-- `Memoize1E` .. `Memoize7E` (1..7 args)
-- `MemoizeCtxE` and `MemoizeCtx1E` .. `MemoizeCtx7E` (context-aware)
-
-Behavior:
-- If a cached value exists for the key, the function returns it and a nil error.
-- If no cached value exists, the compute function is executed.
-  - If compute returns `(v, nil)`, `v` is cached and returned.
-  - If compute returns `(zeroValue, err)` (err != nil), the error is returned and nothing is cached.
-
-Example:
+Direct TTL memoizer:
 
 ```go
-computeFn := func(id int) (string, error) {
-    // may return an error sometimes
-}
-
-memo := Memoize1E(func(id int) (string, error) { return computeFn(id) }, 30*time.Second)
-
-val, err := memo(123)
+cached, err := memoize.Memoize1(loadUser, memoize.Opts().WithTTL(time.Minute))
 if err != nil {
-    // transient error; next call will retry since nothing was cached
+    return err
 }
+user := cached(42)
 ```
 
-### Memoization with Parameters
-
-The package provides functions to memoize functions with up to 7 parameters. Here are some examples:
-
-#### One Parameter
+Direct stale-on-error memoizer:
 
 ```go
-computeFn := func(a int) int {
-    // Expensive computation
-    return a * 2
+cached, err := memoize.MemoizeCtx1E(repo.LoadProfile,
+    memoize.Opts().
+        WithTTL(time.Minute).
+        WithStaleTTL(5*time.Minute).
+        KeepStaleOnError(),
+)
+if err != nil {
+    return err
 }
-
-memoizedFn := Memoize1(computeFn, 10*time.Second)
-result := memoizedFn(5)
+profile, err := cached(ctx, 42)
 ```
 
-The same for functions with Context:
+Explicit cache with business keys:
 
 ```go
-computeCtxFn := func(ctx context.Context, a int) int {
-    // Expensive computation
-    return a * 2
+cache, err := memoize.New[string, User](
+    memoize.Opts().
+        WithStore(memory.New[string, User](10_000)).
+        WithTTL(time.Minute),
+)
+if err != nil {
+    return err
 }
+defer cache.Stop()
 
-memoizedCtxFn := MemoizeCtx1(computeCtxFn, 10*time.Second)
-result := memoizedCtxFn(context.Background(), 5)
+user, err := cache.GetOrCompute(ctx, "user:42", func(ctx context.Context) (User, error) {
+    return repo.LoadUser(ctx, 42)
+})
 ```
 
-#### Two Parameters
+## Defaults
 
-```go
-computeFn := func(a int, b string) string {
-    // Expensive computation
-    return fmt.Sprintf("%d-%s", a, b)
-}
+`memoize.New[K,V]` intentionally does not choose a store or expiration policy for you:
 
-memoizedFn := Memoize2(computeFn, 10*time.Second)
-result := memoizedFn(5, "example")
-```
+| Setting | Default |
+|---|---|
+| Store | None. Use `Opts().WithStore(store)` unless using `Bypass()`. |
+| Expiration policy | None. Choose `WithTTL`, `NoExpiration`, or `Bypass`. |
+| Metrics | Disabled with a noop metrics implementation. Enable with `WithMetrics`. |
+| Clock | Ticker-backed clock with a 1ms tick. Call `cache.Stop()` to release it. |
+| Refresh timeout | 30 seconds for background stale refresh. Override with `WithRefreshTimeout`. |
+| Same-key miss coalescing | Enabled internally for concurrent `GetOrCompute` misses on the same key. |
 
-The same for functions with Context:
+Direct `Memoize*` functions use the same options. If `WithStore` is omitted, they create an internal unbounded `Store[uint64,V]` for hashed argument keys. Direct memoizers still require `WithTTL`, `NoExpiration`, or `Bypass`; they do not silently choose an expiration policy.
 
-```go
-computeCtxFn := func(ctx context.Context, a int, b string) string {
-    // Expensive computation
-    return fmt.Sprintf("%d-%s", a, b)
-}
+## Architecture And Performance
 
-memoizedCtxFn := MemoizeCtx2(computeCtxFn, 10*time.Second)
-result := memoizedCtxFn(context.Background(), 5, "example")
-```
+go_memoize uses one root cache engine for both direct memoizers and explicit caches.
 
-#### Three Parameters
+- Direct memoizers hash comparable arguments to `uint64` and use the same cache engine as `memoize.New`.
+- Stores persist raw `memoize.Stored[V]` envelopes; the cache engine owns fresh, stale, and expired decisions.
+- `GetOrCompute` coalesces same-key concurrent misses through an internal singleflight map.
+- Memory stores provide exact LRU behavior, optional byte limits, and private fast paths used by the cache engine.
+- Cache stale refresh uses cache-engine flight machinery; `background.Keep` and `loader.New` share periodic refresh-loop infrastructure internally.
+- Metrics use one event method, `RecordMetric(MetricEvent)`, to keep hot-path instrumentation small and backend-neutral.
 
-```go
-computeFn := func(a int, b string, c float64) string {
-    // Expensive computation
-    return fmt.Sprintf("%d-%s-%f", a, b, c)
-}
-
-memoizedFn := Memoize3(computeFn, 10*time.Second)
-result := memoizedFn(5, "example", 3.14)
-```
-
-The same for functions with Context:
-
-```go
-computeCtxFn := func(ctx context.Context, a int, b string, c float64) string {
-    // Expensive computation
-    return fmt.Sprintf("%d-%s-%f", a, b, c)
-}
-
-memoizedCtxFn := MemoizeCtx3(computeCtxFn, 10*time.Second)
-result := memoizedCtxFn(context.Background(), 5, "example", 3.14)
-```
-
-### Cache Management
-
-The `Cache` struct is used internally to manage the cached entries. It supports setting, getting, and deleting entries, as well as computing new values if they are not already cached or have expired.
-
-## Testing
-
-Unit tests cover the memoization behavior, including the new error-aware variants. To run tests:
+Latest benchmark snapshot from this checkout used:
 
 ```sh
-# run all tests
-go test ./...
-
-# run a specific test
-go test ./... -run TestMemoizeE_DoesNotCacheError -v
+go test ./benchmarks/ -bench=. -benchmem -benchtime=1s -count=1
 ```
 
-New tests were added in `memoize_error_test.go` to verify that error results are not cached and that successful results are cached.
+Top-line results on this machine: `BenchmarkMemoryHotHit` was `29.80 ns/op` with `0 B/op` and `0 allocs/op`; `BenchmarkSingleHotHit` was `14.74 ns/op`; `BenchmarkGetOrComputeStampede` was `1747 ns/op` with `0 allocs/op`; stale stampede was `399.8 ns/op` with `0 allocs/op`. Sharding did not improve a single hot key (`BenchmarkMemoryHotHitParallel` `150.9 ns/op`, sharded `150.0 ns/op`). See `docs/PERFORMANCE.md` for full output and interpretation.
 
-## Example
+## Production Recommendations
 
-Here is a complete example of using the `memoize` package:
+- Use direct `Memoize*` functions for simple in-process function memoization.
+- Use `Cache.GetOrCompute` when keys are business identifiers, when you need custom stores, or when stale refresh matters.
+- Use `background.Keep` with a shared store for a single-writer snapshot refresher, and `background.Mirror` in reader processes for local atomic reads.
+- Custom stores implement `memoize.Store[K,V]` and must store raw `memoize.Stored[V]` envelopes; the cache engine owns freshness decisions.
+- S3 and other object stores can be custom durable L2 stores behind `chain.New`, but should not be the first cache tier for low-latency hot paths.
+- Use `memory.NewSingle` or `background.Keep` for one logical value such as config, feature flags, or exchange rates.
+- Use `memory.NewSharded` only when many different supported primitive keys are hot concurrently; one key still maps to one shard.
+- Use the Redis adapter or another shared store when multiple processes or hosts need the same backing cache.
+- Always `defer cache.Stop()` for explicit caches using the default ticker clock.
+- Run `go test ./... -count=1` and `go test ./... -race -count=1` before release.
 
-```go
-package main
+## Documentation
 
-import (
-    "fmt"
-    "time"
-    m "github.com/agkloop/go_memoize"
-)
-
-func main() {
-    computeFn := func(a int, b string) string {
-        // Simulate an expensive computation
-        time.Sleep(2 * time.Second)
-        return fmt.Sprintf("%d-%s", a, b)
-    }
-
-    memoizedFn := m.Memoize2(computeFn, 10*time.Second)
-
-    // First call will compute the result
-    result := memoizedFn(5, "example")
-    fmt.Println(result) // Output: 5-example
-
-    // Subsequent calls within 10 seconds will use the cached result
-    result = memoizedFn(5, "example")
-    fmt.Println(result) // Output: 5-example
-}
-```
-
-## Functions & Usage Examples
-
-<table>
-  <tr>
-    <th><code>Function</code></th>
-    <th><code>Description</code></th>
-    <th><code>Example</code></th>
-  </tr>
-  <tr>
-    <td><code>Memoize</code></td>
-    <td>Memoizes a function with no params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize(func() int { return 1 }, time.Minute)
-result := memoizedFn()
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize1</code></td>
-    <td>Memoizes a function with 1 param</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize1(func(a int) int { return a * 2 }, time.Minute)
-result := memoizedFn(5)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize2</code></td>
-    <td>Memoizes a function with 2 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize2(func(a int, b string) string { return fmt.Sprintf("%d-%s", a, b) }, time.Minute)
-result := memoizedFn(5, "example")
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize3</code></td>
-    <td>Memoizes a function with 3 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize3(func(a int, b string, c float64) string { return fmt.Sprintf("%d-%s-%f", a, b, c) }, time.Minute)
-result := memoizedFn(5, "example", 3.14)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize4</code></td>
-    <td>Memoizes a function with 4 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize4(func(a, b, c, d int) int { return a + b + c + d }, time.Minute)
-result := memoizedFn(1, 2, 3, 4)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize5</code></td>
-    <td>Memoizes a function with 5 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize5(func(a, b, c, d, e int) int { return a + b + c + d + e }, time.Minute)
-result := memoizedFn(1, 2, 3, 4, 5)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize6</code></td>
-    <td>Memoizes a function with 6 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize6(func(a, b, c, d, e, f int) int { return a + b + c + d + e + f }, time.Minute)
-result := memoizedFn(1, 2, 3, 4, 5, 6)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize7</code></td>
-    <td>Memoizes a function with 7 params</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize7(func(a, b, c, d, e, f, g int) int { return a + b + c + d + e + f + g }, time.Minute)
-result := memoizedFn(1, 2, 3, 4, 5, 6, 7)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeE</code></td>
-    <td>Memoizes a function with no params, error-aware</td>
-    <td>
-      <pre><code>
-memoizedFn := MemoizeE(func() (int, error) { return 1, nil }, time.Minute)
-result, err := memoizedFn()
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize1E</code></td>
-    <td>Memoizes a function with 1 param, error-aware</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize1E(func(a int) (int, error) { return a * 2, nil }, time.Minute)
-result, err := memoizedFn(5)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize2E</code></td>
-    <td>Memoizes a function with 2 params, error-aware</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize2E(func(a int, b string) (string, error) { return fmt.Sprintf("%d-%s", a, b), nil }, time.Minute)
-result, err := memoizedFn(5, "example")
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>Memoize3E</code></td>
-    <td>Memoizes a function with 3 params, error-aware</td>
-    <td>
-      <pre><code>
-memoizedFn := Memoize3E(func(a int, b string, c float64) (string, error) { return fmt.Sprintf("%d-%s-%f", a, b, c), nil }, time.Minute)
-result, err := memoizedFn(5, "example", 3.14)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx</code></td>
-    <td>Memoizes a function with context and no params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx(func(ctx context.Context) int { return 1 }, time.Minute)
-result := memoizedCtxFn(context.Background())
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx1</code></td>
-    <td>Memoizes a function with context and 1 param</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx1(func(ctx context.Context, a int) int { return a * 2 }, time.Minute)
-result := memoizedCtxFn(context.Background(), 5)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx2</code></td>
-    <td>Memoizes a function with context and 2 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx2(func(ctx context.Context, a int, b string) string { return fmt.Sprintf("%d-%s", a, b) }, time.Minute)
-result := memoizedCtxFn(context.Background(), 5, "example")
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx3</code></td>
-    <td>Memoizes a function with context and 3 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx3(func(ctx context.Context, a int, b string, c float64) string { return fmt.Sprintf("%d-%s-%f", a, b, c) }, time.Minute)
-result := memoizedCtxFn(context.Background(), 5, "example", 3.14)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx4</code></td>
-    <td>Memoizes a function with context and 4 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx4(func(ctx context.Context, a, b, c, d int) int { return a + b + c + d }, time.Minute)
-result := memoizedCtxFn(context.Background(), 1, 2, 3, 4)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx5</code></td>
-    <td>Memoizes a function with context and 5 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx5(func(ctx context.Context, a, b, c, d, e int) int { return a + b + c + d + e }, time.Minute)
-result := memoizedCtxFn(context.Background(), 1, 2, 3, 4, 5)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx6</code></td>
-    <td>Memoizes a function with context and 6 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx6(func(ctx context.Context, a, b, c, d, e, f int) int { return a + b + c + d + e + f }, time.Minute)
-result := memoizedCtxFn(context.Background(), 1, 2, 3, 4, 5, 6)
-      </code></pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>MemoizeCtx7</code></td>
-    <td>Memoizes a function with context and 7 params</td>
-    <td>
-      <pre><code>
-memoizedCtxFn := MemoizeCtx7(func(ctx context.Context, a, b, c, d, e, f, g int) int { return a + b + c + d + e + f + g }, time.Minute)
-result := memoizedCtxFn(context.Background(), 1, 2, 3, 4, 5, 6, 7)
-      </code></pre>
-    </td>
-  </tr>
-</table>
-
-### [For more benchmarking results please check this](https://github.com/agkloop/go_memoize/blob/bechmarking/benchmarks/README.md)
-Device "Apple M2 Pro"
-
-```
-goos: darwin
-goarch: arm64
-BenchmarkDo0Mem-10 | 811289566 | 14.77 ns/op | 0 B/op | 0 allocs/op
-BenchmarkDo1Mem-10 | 676579908 | 18.26 ns/op | 0 B/op | 0 allocs/op
-BenchmarkDo2Mem-10 | 578134332 | 20.99 ns/op | 0 B/op | 0 allocs/op
-BenchmarkDo3Mem-10 | 533455237 | 22.67 ns/op | 0 B/op | 0 allocs/op
-BenchmarkDo4Mem-10 | 487471639 | 24.73 ns/op | 0 B/op | 0 allocs/op
-
-```
-
-This project is licensed under the Apache License. See the [`LICENSE`](https://github.com/agkloop/go_memoize/blob/main/LICENSE) file for details.
+- `docs/GETTING_STARTED.md` - install and first working examples.
+- `docs/CONCEPTS.md` - direct vs explicit cache, keys, stores, TTL/stale, and defaults.
+- `docs/RECIPES.md` - copy-paste usage patterns.
+- `docs/PERFORMANCE.md` - internal architecture, performance optimizations, and benchmark results.
+- `docs/API.md` - full public API reference.
+- `docs/PRODUCTION.md` - production store selection, observability, and failure behavior.
+- `examples/direct_stale_profile_cache` - direct memoizer stale-on-error example.
+- `examples/http_user_cache` - explicit cache with business keys.
+- `adapters/redis/examples/hybrid_profile_cache` - direct memoizer with memory L1 and Redis L2.
