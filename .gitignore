@@ -64,3 +64,5 @@ __debug_bin*
 qodana.yaml
 cmd
 testing
+.opencode
+docs/superpowers

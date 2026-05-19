@@ -1,4 +1,4 @@
-package go_memoize
+package memoize
 
 import (
 	"math"

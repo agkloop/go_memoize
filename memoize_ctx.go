@@ -1,223 +1,219 @@
-package go_memoize
+package memoize
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
-// MemoizeCtx returns a memoized version of the compute function with a specified TTL.
-func MemoizeCtx[V any](computeFn func(context.Context) V, ttl time.Duration) func(context.Context) V {
-	cache := NewCacheSized[uint64, V](1, int64(ttl.Seconds()))
+func MemoizeCtx[V any](computeFn func(context.Context) V, opts Options) (func(context.Context) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context) V {
-		return cache.GetOrCompute(0, func() V {
-			return computeFn(ctx)
+		value, err := cache.GetOrCompute(ctx, 0, func(context.Context) (V, error) {
+			return computeFn(ctx), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx1 returns a memoized version of the compute function with a single key and a specified TTL.
-func MemoizeCtx1[K comparable, V any](computeFn func(context.Context, K) V, ttl time.Duration) func(context.Context, K) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx1[K comparable, V any](computeFn func(context.Context, K) V, opts Options) (func(context.Context, K) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, k K) V {
-		return cache.GetOrCompute(hash1(k), func() V {
-			return computeFn(ctx, k)
+		value, err := cache.GetOrCompute(ctx, hash1(k), func(context.Context) (V, error) {
+			return computeFn(ctx, k), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx2 returns a memoized version of the compute function with two keys and a specified TTL.
-func MemoizeCtx2[K1, K2 comparable, V any](computeFn func(context.Context, K1, K2) V, ttl time.Duration) func(context.Context, K1, K2) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx2[K1, K2 comparable, V any](computeFn func(context.Context, K1, K2) V, opts Options) (func(context.Context, K1, K2) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2) V {
-		return cache.GetOrCompute(hash2(key1, key2), func() V {
-			return computeFn(ctx, key1, key2)
+		value, err := cache.GetOrCompute(ctx, hash2(key1, key2), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx3 returns a memoized version of the compute function with three keys and a specified TTL.
-func MemoizeCtx3[K1, K2, K3 comparable, V any](computeFn func(context.Context, K1, K2, K3) V, ttl time.Duration) func(context.Context, K1, K2, K3) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx3[K1, K2, K3 comparable, V any](computeFn func(context.Context, K1, K2, K3) V, opts Options) (func(context.Context, K1, K2, K3) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3) V {
-		return cache.GetOrCompute(hash3(key1, key2, key3), func() V {
-			return computeFn(ctx, key1, key2, key3)
+		value, err := cache.GetOrCompute(ctx, hash3(key1, key2, key3), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2, key3), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx4 returns a memoized version of the compute function with four keys and a specified TTL.
-func MemoizeCtx4[K1, K2, K3, K4 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4) V, ttl time.Duration) func(context.Context, K1, K2, K3, K4) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx4[K1, K2, K3, K4 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4) V, opts Options) (func(context.Context, K1, K2, K3, K4) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4) V {
-		return cache.GetOrCompute(hash4(key1, key2, key3, key4), func() V {
-			return computeFn(ctx, key1, key2, key3, key4)
+		value, err := cache.GetOrCompute(ctx, hash4(key1, key2, key3, key4), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2, key3, key4), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx5 returns a memoized version of the compute function with five keys and a specified TTL.
-func MemoizeCtx5[K1, K2, K3, K4, K5 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5) V, ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx5[K1, K2, K3, K4, K5 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5) V, opts Options) (func(context.Context, K1, K2, K3, K4, K5) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5) V {
-		return cache.GetOrCompute(hash5(key1, key2, key3, key4, key5), func() V {
-			return computeFn(ctx, key1, key2, key3, key4, key5)
+		value, err := cache.GetOrCompute(ctx, hash5(key1, key2, key3, key4, key5), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2, key3, key4, key5), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx6 returns a memoized version of the compute function with six keys and a specified TTL.
-func MemoizeCtx6[K1, K2, K3, K4, K5, K6 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6) V, ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5, K6) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx6[K1, K2, K3, K4, K5, K6 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6) V, opts Options) (func(context.Context, K1, K2, K3, K4, K5, K6) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6) V {
-		return cache.GetOrCompute(hash6(key1, key2, key3, key4, key5, key6), func() V {
-			return computeFn(ctx, key1, key2, key3, key4, key5, key6)
+		value, err := cache.GetOrCompute(ctx, hash6(key1, key2, key3, key4, key5, key6), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2, key3, key4, key5, key6), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// MemoizeCtx7 returns a memoized version of the compute function with seven keys and a specified TTL.
-func MemoizeCtx7[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6, K7) V, ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5, K6, K7) V {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx7[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6, K7) V, opts Options) (func(context.Context, K1, K2, K3, K4, K5, K6, K7) V, error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6, key7 K7) V {
-		return cache.GetOrCompute(hash7(key1, key2, key3, key4, key5, key6, key7), func() V {
-			return computeFn(ctx, key1, key2, key3, key4, key5, key6, key7)
+		value, err := cache.GetOrCompute(ctx, hash7(key1, key2, key3, key4, key5, key6, key7), func(context.Context) (V, error) {
+			return computeFn(ctx, key1, key2, key3, key4, key5, key6, key7), nil
 		})
-	}
+		if err != nil {
+			var zero V
+			return zero
+		}
+		return value
+	}, nil
 }
 
-// --- New context-aware variants returning (V, error) that avoid caching errors ---
-
-// MemoizeCtxE memoizes a context-aware function returning (V, error). Errors are not cached.
-func MemoizeCtxE[V any](computeFn func(context.Context) (V, error), ttl time.Duration) func(context.Context) (V, error) {
-	cache := NewCacheSized[uint64, V](1, int64(ttl.Seconds()))
+func MemoizeCtxE[V any](computeFn func(context.Context) (V, error), opts Options) (func(context.Context) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context) (V, error) {
-		if v, ok := cache.Get(0); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(0, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, 0, func() (V, error) { return computeFn(ctx) })
+	}, nil
 }
 
-// MemoizeCtx1E memoizes a context-aware function with 1 arg returning (V, error). Errors are not cached.
-func MemoizeCtx1E[K comparable, V any](computeFn func(context.Context, K) (V, error), ttl time.Duration) func(context.Context, K) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx1E[K comparable, V any](computeFn func(context.Context, K) (V, error), opts Options) (func(context.Context, K) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, k K) (V, error) {
-		key := hash1(k)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, k)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash1(k), func() (V, error) { return computeFn(ctx, k) })
+	}, nil
 }
 
-// MemoizeCtx2E memoizes a context-aware function with 2 args returning (V, error). Errors are not cached.
-func MemoizeCtx2E[K1, K2 comparable, V any](computeFn func(context.Context, K1, K2) (V, error), ttl time.Duration) func(context.Context, K1, K2) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx2E[K1, K2 comparable, V any](computeFn func(context.Context, K1, K2) (V, error), opts Options) (func(context.Context, K1, K2) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2) (V, error) {
-		key := hash2(key1, key2)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash2(key1, key2), func() (V, error) { return computeFn(ctx, key1, key2) })
+	}, nil
 }
 
-// MemoizeCtx3E memoizes a context-aware function with 3 args returning (V, error). Errors are not cached.
-func MemoizeCtx3E[K1, K2, K3 comparable, V any](computeFn func(context.Context, K1, K2, K3) (V, error), ttl time.Duration) func(context.Context, K1, K2, K3) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx3E[K1, K2, K3 comparable, V any](computeFn func(context.Context, K1, K2, K3) (V, error), opts Options) (func(context.Context, K1, K2, K3) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3) (V, error) {
-		key := hash3(key1, key2, key3)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2, key3)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash3(key1, key2, key3), func() (V, error) { return computeFn(ctx, key1, key2, key3) })
+	}, nil
 }
 
-// MemoizeCtx4E memoizes a context-aware function with 4 args returning (V, error). Errors are not cached.
-func MemoizeCtx4E[K1, K2, K3, K4 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4) (V, error), ttl time.Duration) func(context.Context, K1, K2, K3, K4) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx4E[K1, K2, K3, K4 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4) (V, error), opts Options) (func(context.Context, K1, K2, K3, K4) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4) (V, error) {
-		key := hash4(key1, key2, key3, key4)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2, key3, key4)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash4(key1, key2, key3, key4), func() (V, error) { return computeFn(ctx, key1, key2, key3, key4) })
+	}, nil
 }
 
-// MemoizeCtx5E memoizes a context-aware function with 5 args returning (V, error). Errors are not cached.
-func MemoizeCtx5E[K1, K2, K3, K4, K5 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5) (V, error), ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx5E[K1, K2, K3, K4, K5 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5) (V, error), opts Options) (func(context.Context, K1, K2, K3, K4, K5) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5) (V, error) {
-		key := hash5(key1, key2, key3, key4, key5)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2, key3, key4, key5)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash5(key1, key2, key3, key4, key5), func() (V, error) { return computeFn(ctx, key1, key2, key3, key4, key5) })
+	}, nil
 }
 
-// MemoizeCtx6E memoizes a context-aware function with 6 args returning (V, error). Errors are not cached.
-func MemoizeCtx6E[K1, K2, K3, K4, K5, K6 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6) (V, error), ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5, K6) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
+func MemoizeCtx6E[K1, K2, K3, K4, K5, K6 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6) (V, error), opts Options) (func(context.Context, K1, K2, K3, K4, K5, K6) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6) (V, error) {
-		key := hash6(key1, key2, key3, key4, key5, key6)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2, key3, key4, key5, key6)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
-	}
+		return getSetDirect(ctx, cache, hash6(key1, key2, key3, key4, key5, key6), func() (V, error) { return computeFn(ctx, key1, key2, key3, key4, key5, key6) })
+	}, nil
 }
 
-// MemoizeCtx7E memoizes a context-aware function with 7 args returning (V, error). Errors are not cached.
-func MemoizeCtx7E[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6, K7) (V, error), ttl time.Duration) func(context.Context, K1, K2, K3, K4, K5, K6, K7) (V, error) {
-	cache := NewCache[uint64, V](int64(ttl.Seconds()))
-	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6, key7 K7) (V, error) {
-		key := hash7(key1, key2, key3, key4, key5, key6, key7)
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v, err := computeFn(ctx, key1, key2, key3, key4, key5, key6, key7)
-		if err != nil {
-			return zeroValue[V](), err
-		}
-		cache.Set(key, v)
-		return v, nil
+func MemoizeCtx7E[K1, K2, K3, K4, K5, K6, K7 comparable, V any](computeFn func(context.Context, K1, K2, K3, K4, K5, K6, K7) (V, error), opts Options) (func(context.Context, K1, K2, K3, K4, K5, K6, K7) (V, error), error) {
+	cache, err := newDirectCache[V](opts)
+	if err != nil {
+		return nil, err
 	}
+	return func(ctx context.Context, key1 K1, key2 K2, key3 K3, key4 K4, key5 K5, key6 K6, key7 K7) (V, error) {
+		return getSetDirect(ctx, cache, hash7(key1, key2, key3, key4, key5, key6, key7), func() (V, error) { return computeFn(ctx, key1, key2, key3, key4, key5, key6, key7) })
+	}, nil
 }
