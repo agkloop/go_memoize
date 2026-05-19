@@ -36,3 +36,18 @@ func TestNewRejectsWrongStoreType(t *testing.T) {
 		t.Fatalf("expected ErrInvalidStore, got %v", err)
 	}
 }
+
+func TestNewRequiresStoreForExplicitCache(t *testing.T) {
+	_, err := memoize.New[string, string](memoize.Opts().WithTTL(time.Minute))
+	if !errors.Is(err, memoize.ErrMissingStore) {
+		t.Fatalf("expected ErrMissingStore, got %v", err)
+	}
+}
+
+func TestNewRejectsTypedNilStore(t *testing.T) {
+	var store *memory.Store[string, string]
+	_, err := memoize.New[string, string](memoize.Opts().WithStore(store).WithTTL(time.Minute))
+	if !errors.Is(err, memoize.ErrInvalidStore) {
+		t.Fatalf("expected ErrInvalidStore, got %v", err)
+	}
+}

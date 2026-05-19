@@ -12,7 +12,16 @@ type Value[V any] struct {
 
 // Get returns the current value. Always local — never blocks, never errors.
 func (val *Value[V]) Get() V {
-	return *val.v.Load()
+	if val == nil {
+		var zero V
+		return zero
+	}
+	ptr := val.v.Load()
+	if ptr == nil {
+		var zero V
+		return zero
+	}
+	return *ptr
 }
 
 func (val *Value[V]) store(v V) {

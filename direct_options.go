@@ -1,6 +1,9 @@
 package memoize
 
-import "time"
+import (
+	"reflect"
+	"time"
+)
 
 type Options struct {
 	store            any
@@ -84,7 +87,7 @@ func (o Options) Bypass() Options {
 func applyOptions[K comparable, V any](c *Cache[K, V], opts Options) error {
 	if opts.hasStore {
 		store, ok := opts.store.(Store[K, V])
-		if !ok || store == nil {
+		if !ok || isNilStore(store) {
 			return ErrInvalidStore
 		}
 		c.store = store
@@ -120,6 +123,19 @@ func applyOptions[K comparable, V any](c *Cache[K, V], opts Options) error {
 		c.clock = NewTickerClock(opts.tickerInterval)
 	}
 	return nil
+}
+
+func isNilStore[K comparable, V any](store Store[K, V]) bool {
+	if store == nil {
+		return true
+	}
+	v := reflect.ValueOf(store)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func newDirectCache[V any](opts Options) (*Cache[uint64, V], error) {

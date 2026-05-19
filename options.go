@@ -46,6 +46,9 @@ func New[K comparable, V any](opts ...Options) (*Cache[K, V], error) {
 	if c.ttl == 0 && c.staleTTL > 0 {
 		return nil, ErrInvalidStaleTTL
 	}
+	if c.store == nil && !c.bypass {
+		return nil, ErrMissingStore
+	}
 	return c, nil
 }
 

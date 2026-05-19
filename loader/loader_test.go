@@ -27,6 +27,22 @@ func TestLoaderValue(t *testing.T) {
 	}
 }
 
+func TestLoaderNonPositiveIntervalDoesNotPanic(t *testing.T) {
+	l := loader.New[int](
+		func(_ context.Context) (int, error) {
+			return 42, nil
+		},
+		0,
+	)
+	defer l.Stop()
+
+	v, err := l.Value(context.Background())
+	if err != nil || v != 42 {
+		t.Fatalf("expected 42, got %d, err=%v", v, err)
+	}
+	time.Sleep(10 * time.Millisecond)
+}
+
 func TestLoaderRefreshes(t *testing.T) {
 	counter := atomic.Int32{}
 	l := loader.New[int](

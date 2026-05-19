@@ -225,18 +225,15 @@ func TestNoEvictionWhenUnbounded(t *testing.T) {
 
 func TestByteCapacityEvicts(t *testing.T) {
 	ctx := context.Background()
-	// unsafe.Sizeof(memoize.Stored[string]{}) = 136 bytes on 64-bit (string header 16 +
-	// time.Time 24 + bool + padding + additional fields).
-	// key "key1" = 4 bytes → total per entry = 140 bytes.
-	// Limit = 200 bytes → fits 1 entry cleanly; 2nd entry (total 280) triggers eviction.
-	s := New[string, string](16, WithMaxBytes[string, string](200))
-
 	stored := func(v string) memoize.Stored[string] {
 		return memoize.Stored[string]{Value: v, NoExpire: true}
 	}
-	_ = s.Set(ctx, "key1", stored("0123456789")) // 140 bytes
-	_ = s.Set(ctx, "key2", stored("abcdefghij")) // 140 bytes → total 280, evicts key1
-	_ = s.Set(ctx, "key3", stored("XXXXXXXXXX")) // 140 bytes → evicts key2
+	entryCost := entryBytes("key1", stored("0123456789"))
+	s := New[string, string](16, WithMaxBytes[string, string](entryCost*2-1))
+
+	_ = s.Set(ctx, "key1", stored("0123456789"))
+	_ = s.Set(ctx, "key2", stored("abcdefghij"))
+	_ = s.Set(ctx, "key3", stored("XXXXXXXXXX"))
 
 	if _, ok, _ := s.Get(ctx, "key1"); ok {
 		t.Fatal("key1 should have been evicted")

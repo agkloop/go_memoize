@@ -31,6 +31,38 @@ func TestKeep_InitialLoad(t *testing.T) {
 	}
 }
 
+func TestValueGetZeroValueReturnsZero(t *testing.T) {
+	var val background.Value[int]
+	if got := val.Get(); got != 0 {
+		t.Fatalf("want zero value, got %d", got)
+	}
+}
+
+func TestKeep_NonPositiveIntervalDoesNotPanic(t *testing.T) {
+	val, err := background.Keep(context.Background(), func(context.Context) (int, error) {
+		return 42, nil
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := val.Get(); got != 42 {
+		t.Fatalf("want initial value 42, got %d", got)
+	}
+	time.Sleep(10 * time.Millisecond)
+}
+
+func TestMirror_NonPositiveIntervalDoesNotPanic(t *testing.T) {
+	store := &fakeStore[int]{entry: memoize.Stored[int]{Value: 42, NoExpire: true}, ok: true}
+	val, err := background.Mirror[int](context.Background(), "k", store, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := val.Get(); got != 42 {
+		t.Fatalf("want initial value 42, got %d", got)
+	}
+	time.Sleep(10 * time.Millisecond)
+}
+
 func TestKeep_InitialLoadError(t *testing.T) {
 	fn := func(ctx context.Context) (int, error) {
 		return 0, errors.New("boom")
@@ -217,10 +249,9 @@ func TestMirror_StopsOnCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &fakeStore[int]{entry: memoize.Stored[int]{Value: 1, NoExpire: true}, ok: true}
 	var calls atomic.Int32
-	// wrap to count
-	_ = background.OnRefresh[int](func(int) { calls.Add(1) })
-
-	_, err := background.Mirror[int](ctx, "k", store, 10*time.Millisecond)
+	_, err := background.Mirror[int](ctx, "k", store, 10*time.Millisecond,
+		background.OnRefresh[int](func(int) { calls.Add(1) }),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
