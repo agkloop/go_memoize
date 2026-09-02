@@ -24,7 +24,7 @@ jobs:
         with:
           # Use a patched toolchain for security scanning; go.mod still defines
           # the module compatibility target.
-          go-version: "1.25.10"
+          go-version: "1.25.13"
           check-latest: true
           cache: true
           cache-dependency-path: |
