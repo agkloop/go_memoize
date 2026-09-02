@@ -44,7 +44,8 @@ Choose the API and store before editing:
 - `memory.NewSingle[K,V]()` is read-mostly and avoids LRU/hash overhead for one logical value.
 - Stores persist raw `memoize.Stored[V]` envelopes. The cache engine owns fresh, stale, and expired decisions.
 - Built-in stores may expose private fast paths used by the cache engine. Do not document those as public extension points.
-- `WithGetRecencySample(n)` makes direct `Store.Get` recency approximate when `n > 1`.
+- `WithGetRecencySample(n)` makes direct `Store.Get` and cache-engine fresh-hit recency approximate when `n > 1`.
+- Default clocks and clocks created by `WithTickerClock` are cache-owned and stopped by `Cache.Stop`; clocks injected with `WithClock` are caller-owned and may be shared across caches.
 - Metrics use one public method: `RecordMetric(memoize.MetricEvent)`.
 - `background.Keep` and `loader.New` share internal periodic refresh-loop infrastructure. Cache stale refresh uses cache flight machinery, not the shared refresh loop.
 - Source compatibility may change for performance or clarity; users can pin module versions.

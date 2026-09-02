@@ -31,8 +31,9 @@ func WithMaxBytes[K comparable, V any](n int64) Option[K, V] {
 	}
 }
 
-// WithGetRecencySample makes Get refresh LRU recency once every n hits.
-// n <= 1 preserves exact LRU behavior by refreshing recency on every hit.
+// WithGetRecencySample makes direct Get calls and cache-engine fresh hits
+// refresh LRU recency once every n hits. n <= 1 preserves exact LRU behavior
+// by refreshing recency on every hit.
 func WithGetRecencySample[K comparable, V any](n uint32) Option[K, V] {
 	return func(o *options) {
 		o.getRecencySample = n

@@ -89,6 +89,9 @@ func (s *Store[K, V]) PeekFreshValue(_ context.Context, key K, now time.Time) (V
 	}
 	entry := &s.elements[pos].value
 	if entry.NoExpire || now.Before(entry.FreshUntil) || now.Equal(entry.FreshUntil) {
+		if s.refreshOnGet() {
+			s.moveToFront(pos)
+		}
 		return entry.Value, true, nil
 	}
 	var zero V

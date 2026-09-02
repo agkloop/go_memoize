@@ -16,7 +16,7 @@ By default, direct memoizers use an internal unbounded map-backed store. Use `me
 
 The cache engine coalesces concurrent same-key misses internally. One caller becomes the leader and computes the value; followers wait for the active flight and receive the same result. This avoids stampedes for cold keys and for refresh paths that converge on the same key.
 
-Explicit caches own a default ticker clock and should be shut down with `Stop` when the cache lifetime ends. `Stop` releases the default clock goroutine and is safe to call more than once.
+Explicit caches own a default ticker clock and should be shut down with `Stop` when the cache lifetime ends. `WithTickerClock` also creates a cache-owned clock. `WithClock` injects a caller-owned clock instead, allowing several caches to share one clock without an individual cache stopping it. Clock construction happens only after cache options validate, so failed construction and injected clocks do not leave a hidden default ticker behind.
 
 ## Direct Memoizer Keying
 
@@ -34,7 +34,7 @@ External stores only need to implement the public `memoize.Store[K, V]` interfac
 
 ## Memory Store Design
 
-`memory.New` keeps an exact LRU with a fixed item capacity. It also supports optional byte limits using a shallow entry-size estimate; heap allocations inside values such as string contents or slice backing arrays are not counted.
+`memory.New` keeps an exact LRU with a fixed item capacity. Direct `Store.Get` calls and fresh cache-engine hits both refresh recency; `WithGetRecencySample(n)` can make those updates approximate to reduce contention. Optional byte limits use a shallow entry-size estimate; heap allocations inside values such as string contents or slice backing arrays are not counted.
 
 `memory.NewSingle` stores one logical value and avoids LRU and hash overhead on the hot read path. Use it for one cached snapshot, one global configuration value, or one hot key. It is not a general replacement for many-key caches.
 
