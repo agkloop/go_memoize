@@ -48,6 +48,7 @@ Choose the API and store before editing:
 - Default clocks and clocks created by `WithTickerClock` are cache-owned and stopped by `Cache.Stop`; clocks injected with `WithClock` are caller-owned and may be shared across caches.
 - Metrics use one public method: `RecordMetric(memoize.MetricEvent)`.
 - `background.Keep` and `loader.New` share internal periodic refresh-loop infrastructure. Cache stale refresh uses cache flight machinery, not the shared refresh loop.
+- A foreground `GetOrCompute` panic is propagated to the leader and same-flight followers. The flight must be removed without caching a result so later calls can retry.
 - Source compatibility may change for performance or clarity; users can pin module versions.
 - Keep core code standard-library-only unless the user explicitly approves a dependency.
 

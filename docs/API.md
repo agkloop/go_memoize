@@ -124,6 +124,8 @@ defer cache.Stop()
 
 The cache engine owns freshness decisions. Stores persist `memoize.Stored[V]` envelopes and return entries even when they might be stale or expired; `Cache[K,V]` decides whether to serve, refresh, or miss.
 
+If a foreground `GetOrCompute` function panics, the leader and all callers waiting on that same-key computation panic with the same value. The failed flight is removed without caching a result, so a later call can retry normally.
+
 `GetOrCompute` example:
 
 ```go
