@@ -424,3 +424,45 @@ func TestConcurrentMissComputesOnce(t *testing.T) {
 		t.Fatalf("expected 1 compute call, got %d", calls)
 	}
 }
+
+func TestGetOrComputePanicDoesNotPoisonKey(t *testing.T) {
+	cache, err := memoize.New[string, int](
+		memoize.Opts().WithStore(memory.New[string, int](8)).WithTTL(time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("new cache failed: %v", err)
+	}
+	t.Cleanup(cache.Stop)
+
+	func() {
+		defer func() {
+			if got := recover(); got != "boom" {
+				t.Fatalf("recovered panic = %v, want boom", got)
+			}
+		}()
+		_, _ = cache.GetOrCompute(t.Context(), "key", func(context.Context) (int, error) {
+			panic("boom")
+		})
+	}()
+
+	type result struct {
+		value int
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		value, err := cache.GetOrCompute(t.Context(), "key", func(context.Context) (int, error) {
+			return 42, nil
+		})
+		done <- result{value: value, err: err}
+	}()
+
+	select {
+	case got := <-done:
+		if got.err != nil || got.value != 42 {
+			t.Fatalf("retry = (%d, %v), want (42, nil)", got.value, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("retry blocked on a poisoned single-flight")
+	}
+}

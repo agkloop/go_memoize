@@ -8,9 +8,19 @@ import (
 )
 
 type flight[V any] struct {
-	wg    sync.WaitGroup
-	value V
-	err   error
+	wg         sync.WaitGroup
+	value      V
+	err        error
+	panicValue any
+	panicked   bool
+}
+
+func (f *flight[V]) wait() (V, error) {
+	f.wg.Wait()
+	if f.panicked {
+		panic(f.panicValue)
+	}
+	return f.value, f.err
 }
 
 // peekingStore lets GetOrCompute inspect stored entry state without applying
@@ -112,8 +122,8 @@ func (c *Cache[K, V]) waitForFlight(key K) (V, bool, error) {
 		var zero V
 		return zero, false, nil
 	}
-	existing.wg.Wait()
-	return existing.value, true, existing.err
+	value, err := existing.wait()
+	return value, true, err
 }
 
 func (c *Cache[K, V]) startFlight(key K) (*flight[V], bool) {
@@ -132,21 +142,37 @@ func (c *Cache[K, V]) startFlight(key K) (*flight[V], bool) {
 func (c *Cache[K, V]) finishFlight(key K, f *flight[V], value V, err error) {
 	f.value = value
 	f.err = err
-	f.wg.Done()
 
 	c.flightMu.Lock()
 	delete(c.flights, key)
 	c.flightMu.Unlock()
+	f.wg.Done()
 }
 
-func (c *Cache[K, V]) do(key K, fn func() (V, error)) (V, error) {
+func (c *Cache[K, V]) finishPanickedFlight(key K, f *flight[V], panicValue any) {
+	f.panicValue = panicValue
+	f.panicked = true
+
+	c.flightMu.Lock()
+	delete(c.flights, key)
+	c.flightMu.Unlock()
+	f.wg.Done()
+}
+
+func (c *Cache[K, V]) do(key K, fn func() (V, error)) (value V, err error) {
 	f, leader := c.startFlight(key)
 	if !leader {
-		f.wg.Wait()
-		return f.value, f.err
+		return f.wait()
 	}
 
-	value, err := fn()
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			c.finishPanickedFlight(key, f, panicValue)
+			panic(panicValue)
+		}
+	}()
+
+	value, err = fn()
 	c.finishFlight(key, f, value, err)
 	return value, err
 }
