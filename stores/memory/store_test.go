@@ -125,6 +125,37 @@ func TestGetRecencySampling(t *testing.T) {
 	}
 }
 
+func TestPeekFreshValueRecencySampling(t *testing.T) {
+	ctx := t.Context()
+	now := time.Now()
+	stored := func(v string) memoize.Stored[string] {
+		return memoize.Stored[string]{Value: v, FreshUntil: now.Add(time.Minute)}
+	}
+
+	skipped := New[string, string](2, WithGetRecencySample[string, string](3))
+	_ = skipped.Set(ctx, "a", stored("A"))
+	_ = skipped.Set(ctx, "b", stored("B"))
+	_, _, _ = skipped.PeekFreshValue(ctx, "a", now)
+	_ = skipped.Set(ctx, "c", stored("C"))
+	if _, ok, _ := skipped.Get(ctx, "a"); ok {
+		t.Fatal("first sampled fresh hit should not refresh recency; expected a to be evicted")
+	}
+
+	refreshed := New[string, string](2, WithGetRecencySample[string, string](3))
+	_ = refreshed.Set(ctx, "a", stored("A"))
+	_ = refreshed.Set(ctx, "b", stored("B"))
+	for range 3 {
+		_, _, _ = refreshed.PeekFreshValue(ctx, "a", now)
+	}
+	_ = refreshed.Set(ctx, "c", stored("C"))
+	if _, ok, _ := refreshed.Get(ctx, "a"); !ok {
+		t.Fatal("third sampled fresh hit should refresh recency; expected a to survive")
+	}
+	if _, ok, _ := refreshed.Get(ctx, "b"); ok {
+		t.Fatal("expected b to be evicted after sampled fresh hit of a")
+	}
+}
+
 func TestCapacityFirstConstructorEvictsLeastRecentlyUsed(t *testing.T) {
 	ctx := context.Background()
 	s := New[string, string](2)

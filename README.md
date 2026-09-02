@@ -77,7 +77,7 @@ user, err := cache.GetOrCompute(ctx, "user:42", func(ctx context.Context) (User,
 | Store | None. Use `Opts().WithStore(store)` unless using `Bypass()`. |
 | Expiration policy | None. Choose `WithTTL`, `NoExpiration`, or `Bypass`. |
 | Metrics | Disabled with a noop metrics implementation. Enable with `WithMetrics`. |
-| Clock | Ticker-backed clock with a 1ms tick. Call `cache.Stop()` to release it. |
+| Clock | Cache-owned ticker clock with a 1ms tick. Call `cache.Stop()` to release it. Clocks passed with `WithClock` remain caller-owned. |
 | Refresh timeout | 30 seconds for background stale refresh. Override with `WithRefreshTimeout`. |
 | Same-key miss coalescing | Enabled internally for concurrent `GetOrCompute` misses on the same key. |
 
@@ -112,7 +112,7 @@ Top-line results on this machine: `BenchmarkMemoryHotHit` was `29.80 ns/op` with
 - Use `memory.NewSingle` or `background.Keep` for one logical value such as config, feature flags, or exchange rates.
 - Use `memory.NewSharded` only when many different supported primitive keys are hot concurrently; one key still maps to one shard.
 - Use the Redis adapter or another shared store when multiple processes or hosts need the same backing cache.
-- Always `defer cache.Stop()` for explicit caches using the default ticker clock.
+- Always `defer cache.Stop()` for explicit caches using the default clock or `WithTickerClock`; stop caller-owned clocks passed with `WithClock` at their owning lifecycle boundary.
 - Run `go test ./... -count=1` and `go test ./... -race -count=1` before release.
 
 ## Documentation

@@ -56,6 +56,7 @@ func (o Options) WithMetrics(metrics Metrics) Options {
 func (o Options) WithClock(clock Clock) Options {
 	if clock != nil {
 		o.clock = clock
+		o.tickerInterval = 0
 	}
 	return o
 }
@@ -69,6 +70,7 @@ func (o Options) WithRefreshTimeout(timeout time.Duration) Options {
 
 func (o Options) WithTickerClock(interval time.Duration) Options {
 	if interval > 0 {
+		o.clock = nil
 		o.tickerInterval = interval
 	}
 	return o
@@ -115,12 +117,16 @@ func applyOptions[K comparable, V any](c *Cache[K, V], opts Options) error {
 	}
 	if opts.clock != nil {
 		c.clock = opts.clock
+		c.clockOwned = false
+		c.tickerInterval = 0
 	}
 	if opts.refreshTimeout > 0 {
 		c.refreshTimeout = opts.refreshTimeout
 	}
 	if opts.tickerInterval > 0 {
-		c.clock = NewTickerClock(opts.tickerInterval)
+		c.clock = nil
+		c.clockOwned = false
+		c.tickerInterval = opts.tickerInterval
 	}
 	return nil
 }

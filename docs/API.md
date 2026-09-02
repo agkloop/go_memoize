@@ -120,7 +120,7 @@ defer cache.Stop()
 | `Delete(ctx, key)` | Deletes one key. |
 | `Clear(ctx)` | Clears the backing store. |
 | `GetOrCompute(ctx, key, fn)` | Returns a fresh cached value or computes, stores, and returns it. Concurrent misses for the same key are coalesced. |
-| `Stop()` | Releases ticker-clock resources. Safe to call more than once. |
+| `Stop()` | Releases cache-owned ticker-clock resources. It does not stop clocks supplied with `WithClock`. Safe to call more than once. |
 
 The cache engine owns freshness decisions. Stores persist `memoize.Stored[V]` envelopes and return entries even when they might be stale or expired; `Cache[K,V]` decides whether to serve, refresh, or miss.
 
@@ -157,8 +157,8 @@ Build options with the non-generic root builder `memoize.Opts()`.
 | `NoExpiration()` | Direct memoizers and explicit caches | Values remain fresh until overwritten, deleted, or cleared. | Satisfies the required expiration-policy validation. |
 | `Bypass()` | Direct memoizers and explicit caches | Always computes and never stores. Useful for feature flags, tests, or temporarily disabling caching. | Satisfies expiration-policy validation and does not require a store. |
 | `WithMetrics(metrics)` | Direct memoizers and explicit caches | Records cache events through `RecordMetric(MetricEvent)`. Nil is ignored. | No error; nil leaves metrics disabled. |
-| `WithClock(clock)` | Direct memoizers and explicit caches | Injects a clock, mainly for tests or custom timing. | Nil is ignored. |
-| `WithTickerClock(interval)` | Direct memoizers and explicit caches | Uses a root ticker-backed clock at the given interval. | Non-positive intervals are ignored. |
+| `WithClock(clock)` | Direct memoizers and explicit caches | Injects a caller-owned clock, mainly for tests, shared clocks, or custom timing. The cache does not stop it. | Nil is ignored. |
+| `WithTickerClock(interval)` | Direct memoizers and explicit caches | Creates a cache-owned ticker-backed clock at the given interval. `Cache.Stop` releases it. | Non-positive intervals are ignored. |
 | `WithRefreshTimeout(timeout)` | Direct memoizers and explicit caches | Timeout used for background stale refresh work. | Non-positive values are ignored; default remains in effect. |
 
 Every cache needs exactly one expiration strategy in practice: `WithTTL`, `NoExpiration`, or `Bypass`. `WithStaleTTL` extends a TTL policy; it is not a standalone expiration policy.
@@ -174,7 +174,7 @@ Every cache needs exactly one expiration strategy in practice: `WithTTL`, `NoExp
 | Refresh timeout | `30 * time.Second`. | Same. |
 | Concurrent miss coalescing | Enabled by an internal per-key flight map. | Same. |
 
-Call `cache.Stop()` for explicit caches when you own the cache lifetime. Direct memoizers own their internal cache; use an explicit cache if shutdown control is required.
+Call `cache.Stop()` for explicit caches when you own the cache lifetime. It stops the default clock and clocks created by `WithTickerClock`; the caller remains responsible for clocks injected through `WithClock`. Direct memoizers own their internal cache; use an explicit cache if shutdown control is required.
 
 ## Errors
 
@@ -296,10 +296,10 @@ Memory options:
 | Option | Meaning |
 |---|---|
 | `memory.WithMaxBytes(n)` | Shallow byte budget; evicts LRU entries when exceeded. |
-| `memory.WithGetRecencySample(n)` | Refreshes LRU recency every `n` hits. `n <= 1` keeps exact LRU on every get. |
+| `memory.WithGetRecencySample(n)` | Refreshes LRU recency every `n` direct-store or cache-engine fresh hits. `n <= 1` keeps exact LRU on every hit. |
 | `memory.WithShards(n)` | Shard count for `NewSharded`; must be a positive power of two. |
 
-Memory stores support `Get`, `Peek`, `Set`, `Delete`, `Clear`, `DeleteByTag`, `Len`, and `UsedBytes`. `Peek` is used by the cache engine to read without recency updates; user code should usually call `Cache` methods instead.
+Memory stores support `Get`, `Peek`, `Set`, `Delete`, `Clear`, `DeleteByTag`, `Len`, and `UsedBytes`. The cache engine updates recency for fresh hits and uses `Peek` for policy inspection without making stale or expired entries recent; user code should usually call `Cache` methods instead.
 
 ## Chain Store
 

@@ -14,7 +14,7 @@ This guide describes production choices for the root module `github.com/agkloop/
 | Direct memoizer freshness | No default expiration policy. | Choose `WithTTL`, `NoExpiration`, or `Bypass`. |
 | Metrics | Disabled/noop. | Pass `WithMetrics` where hit rate, stale behavior, refresh errors, or writes need observability. |
 | Refresh timeout | 30 seconds. | Use `WithRefreshTimeout` when stale refresh must respect a stricter dependency SLO. |
-| Clock lifecycle | Default ticker-backed clock. | Call `cache.Stop()` for explicit caches during shutdown. |
+| Clock lifecycle | Default cache-owned ticker-backed clock. | Call `cache.Stop()` for explicit caches during shutdown. Clocks injected with `WithClock` remain caller-owned and can be shared safely. |
 
 ## Which API Should I Use?
 
@@ -319,7 +319,8 @@ Track hit rate, stale hits, refresh errors, refresh latency, set/delete rates, a
 
 ## Shutdown
 
-- Call `cache.Stop()` for explicit caches using the default ticker clock.
+- Call `cache.Stop()` for explicit caches using the default clock or `WithTickerClock`.
+- Stop a shared clock passed through `WithClock` once, at its owning lifecycle boundary; individual caches do not stop injected clocks.
 - Cancel the context passed to `background.Keep` or `background.Mirror` to stop refresh loops.
 - Call `loader.Stop()` to stop loader goroutines.
 - Pass request contexts into `GetOrCompute`; compute functions receive the same context.

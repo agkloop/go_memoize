@@ -120,6 +120,41 @@ func TestGetOrComputeCachesFreshValue(t *testing.T) {
 	}
 }
 
+func TestGetOrComputeFreshHitRefreshesLRURecency(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New[string, string](2)
+	cache, err := memoize.New[string, string](
+		memoize.Opts().WithStore(store).NoExpiration(),
+	)
+	if err != nil {
+		t.Fatalf("new cache failed: %v", err)
+	}
+	t.Cleanup(cache.Stop)
+
+	if err := cache.Set(ctx, "a", "A"); err != nil {
+		t.Fatalf("set a failed: %v", err)
+	}
+	if err := cache.Set(ctx, "b", "B"); err != nil {
+		t.Fatalf("set b failed: %v", err)
+	}
+	if got, err := cache.GetOrCompute(ctx, "a", func(context.Context) (string, error) {
+		t.Fatal("fresh value should not be recomputed")
+		return "", nil
+	}); err != nil || got != "A" {
+		t.Fatalf("fresh hit returned value=%q err=%v", got, err)
+	}
+	if err := cache.Set(ctx, "c", "C"); err != nil {
+		t.Fatalf("set c failed: %v", err)
+	}
+
+	if _, ok, err := cache.Get(ctx, "b"); err != nil || ok {
+		t.Fatalf("least recently used key b returned ok=%v err=%v", ok, err)
+	}
+	if got, ok, err := cache.Get(ctx, "a"); err != nil || !ok || got != "A" {
+		t.Fatalf("recently used key a returned value=%q ok=%v err=%v", got, ok, err)
+	}
+}
+
 func TestGetOrComputeUsesPeekForFreshHit(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
